@@ -7,6 +7,9 @@ stay in sync. Uses the popular GGRS crate to do so.
 
 Basicly for the final I want controlable characters, that have attack animations, hopefully hitboxes on the attacks
 
+## Youtube video showing it off
+
+https://youtu.be/x55EGR7V6lo
 
 ## Running it
 
