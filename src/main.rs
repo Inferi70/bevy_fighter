@@ -10,8 +10,6 @@ use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_matchbox::prelude::*;
 use bevy_xpbd_2d::{math::*, prelude::*};
 
-use bevy_aseprite::{anim::AsepriteAnimation, AsepriteBundle, AsepritePlugin};
-
 mod args;
 mod input;
 mod lobby;
@@ -26,16 +24,6 @@ struct Actor;
 #[derive(Default, Component)]
 pub struct Player {
     pub handle: usize,
-}
-
-// Animation files
-#[derive(Component, Clone, Copy, Debug)]
-struct PunchTag;
-
-mod sprites {
-    use bevy_aseprite::aseprite;
-
-    aseprite!(pub Player, "fighters/punch.ase");
 }
 
 /// just used for desync detection for now
@@ -59,7 +47,16 @@ struct FrameCount {
     frame: usize,
 }
 
-fn setup_scene(mut commands: Commands, frame: Res<FrameCount>) {
+#[derive(Component, Clone)]
+struct AnimationIndices {
+    first: usize,
+    last: usize,
+}
+
+#[derive(Component, Deref, DerefMut)]
+struct AnimationTimer(Timer);
+
+fn setup_scene(mut commands: Commands, frame: Res<FrameCount>, asset_server: Res<AssetServer>) {
     // Spawn box arround players, this code is found in many places like xpdb example programs
     if **frame != 0 {
         return;
@@ -72,6 +69,13 @@ fn setup_scene(mut commands: Commands, frame: Res<FrameCount>) {
         ..default()
     };
 
+    // Spawn the background sprite
+    // Hard coded the size for now, same with img cause we dont have a secondary stage
+    commands.spawn(SpriteBundle {
+        texture: asset_server.load("Stage Backgrounds/Background.png"),
+        transform: Transform::from_scale(Vec3::new(1.76, 2.2, 1.0)),
+        ..Default::default()
+    });
     // Ceiling
     commands
         .spawn((
@@ -133,6 +137,7 @@ fn spawn_characters(
     mut commands: Commands,
     frame_count: Res<FrameCount>,
     asset_server: Res<AssetServer>,
+    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
 ) {
     if **frame_count != 0 {
         info!("not spawning characters on frame {frame_count:?}");
@@ -140,93 +145,125 @@ fn spawn_characters(
     }
     info!("Spawning characters");
 
-    let player1_texture: Handle<Image> = asset_server.load("fighters/south_char.png");
+    // Load the combined texture containing both default character and punch animation
+    let texture_handle = asset_server.load("fighters/redNinja.png");
+    let texture_atlas = TextureAtlas::from_grid(
+        texture_handle.clone(),
+        Vec2::new(64.0, 64.0),
+        5,
+        1,
+        None,
+        None,
+    );
+    let texture_atlas_handle = texture_atlases.add(texture_atlas);
+    let default_indices = AnimationIndices { first: 0, last: 0 }; //dont want it to play any animation at the begining
 
-    // Create a sprite bundle with the loaded texture
-    let player_sprite_bundle = SpriteBundle {
-        texture: player1_texture.clone(),
-        ..Default::default()
-    };
-
-    let mut punch_attack = AsepriteBundle {
-            aseprite: asset_server.load(sprites::Player::PATH),
-            animation: AsepriteAnimation::from(sprites::Player::tags::PUNCH),
-            transform: Transform {
-                scale: Vec3::splat(4.),
-                translation: Vec3::new(0., 80., 0.),
+    // Spawn Player 1
+    commands
+        .spawn((
+            Player { handle: 0 },
+            SpriteSheetBundle {
+                texture_atlas: texture_atlas_handle.clone(),
+                sprite: TextureAtlasSprite::new(default_indices.first),
+                transform: Transform::from_scale(Vec3::splat(2.0)),
                 ..Default::default()
             },
-            ..Default::default()
-        };
-
-    punch_attack.animation.is_playing = false;
-
-    // Spawn an actor for the user to control
-    commands.spawn(player_sprite_bundle)
+            default_indices.clone(),
+            AnimationTimer(Timer::from_seconds(0.5, TimerMode::Repeating)),
+        ))
         .insert(RigidBody::Dynamic)
-        .insert(Position(Vector::new(0.0, 0.0)))
-        .insert(PrevPos(Vector::new(0.0, 0.0)))
+        .insert(Position(Vector::new(-150.0, 0.0)))
+        .insert(PrevPos(Vector::new(-150.0, 0.0)))
         .insert(Rotation::default())
         .insert(Collider::cuboid(30.0, 50.0))
-        .insert(Player { handle: 1 })
         .insert(Actor)
-        .insert(LockedAxes::ROTATION_LOCKED)
-        .insert(punch_attack);
-        // adding rollback works just doesnt work in singleplayer testing atm so comment out to test
-        //.add_rollback();
+        .insert(LockedAxes::ROTATION_LOCKED);
 
+    // Spawn player 2
+    commands
+        .spawn((
+            Player { handle: 1 },
+            SpriteSheetBundle {
+                texture_atlas: texture_atlas_handle.clone(),
+                sprite: TextureAtlasSprite::new(default_indices.first),
+                transform: Transform::from_scale(Vec3::splat(2.0)),
+                ..Default::default()
+            },
+            default_indices,
+            AnimationTimer(Timer::from_seconds(0.5, TimerMode::Repeating)),
+        ))
+        .insert(RigidBody::Dynamic)
+        .insert(Position(Vector::new(-150.0, 0.0)))
+        .insert(PrevPos(Vector::new(-150.0, 0.0)))
+        .insert(Rotation::default())
+        .insert(Collider::cuboid(30.0, 50.0))
+        .insert(Actor)
+        .insert(LockedAxes::ROTATION_LOCKED);
 }
 
-fn movement(
+fn handle_player_input(
+    time: Res<Time>,
     inputs: Res<PlayerInputs<GgrsConfig>>,
-    mut actors: Query<&mut LinearVelocity, With<Actor>>,
-    mut flip_actors: Query<&mut Sprite, With<Actor>>,
+    mut query: Query<(
+        &mut AnimationIndices,
+        &mut AnimationTimer,
+        &mut TextureAtlasSprite,
+        Option<&mut LinearVelocity>,
+        &Player,
+    )>,
 ) {
-    for input in inputs.iter() {
-        let buttons = input.0.buttons;
+    for (mut indices, mut timer, mut sprite, velocity, player) in &mut query.iter_mut() {
+        if let Some(input) = inputs.get(player.handle) {
+            let buttons = input.0.buttons;
 
-        // Handles movement(speed)
-        for mut linear_velocity in &mut actors {
-            // Only jump if it was just pressed so we dont jump for unintentionally holding the
-            // button for more than one frame
-            if buttons & INPUT_UP_JUST_PRESSED != 0 {
-                linear_velocity.y += 125.0;
-            }
-            if buttons & INPUT_DOWN != 0 {
-                linear_velocity.y -= 10.0;
-            }
-            if buttons & INPUT_LEFT != 0 {
-                linear_velocity.x -= 10.0;
-            }
-            if buttons & INPUT_RIGHT != 0 {
-                linear_velocity.x += 10.0;
-            }
-        }
+            //let buttons = inputs.iter().next().map_or(0, |input| input.0.buttons);
 
-        // Handles changing directions
-        for mut cur_sprite in &mut flip_actors {
+            // Handle movement logic
+            if let Some(mut linear_velocity) = velocity {
+                // Handles movement(speed)
+                if buttons & INPUT_UP_JUST_PRESSED != 0 {
+                    linear_velocity.y += 125.0;
+                }
+                if buttons & INPUT_DOWN != 0 {
+                    linear_velocity.y -= 10.0;
+                }
+                if buttons & INPUT_LEFT != 0 {
+                    linear_velocity.x -= 10.0;
+                }
+                if buttons & INPUT_RIGHT != 0 {
+                    linear_velocity.x += 10.0;
+                }
+
+                // Handles changing directions
                 if buttons & INPUT_LEFT_JUST_PRESSED != 0 {
-                   cur_sprite.flip_x = true; 
+                    sprite.flip_x = true;
                 }
 
                 if buttons & INPUT_RIGHT_JUST_PRESSED != 0 {
-                   cur_sprite.flip_x = false; 
+                    sprite.flip_x = false;
                 }
-        }
-    }
-}
+            }
 
-fn attack_actions(
-    inputs: Res<PlayerInputs<GgrsConfig>>,
-    mut aseprites: ParamSet<(
-        Query<&mut AsepriteAnimation, With<Actor>>,
-    )>,
-) {
-    for input in inputs.iter() {
-        let buttons = input.0.buttons;
-        if buttons & INPUT_PUNCH_JUST_PRESSED != 0 {
-            for mut punch_anim in aseprites.p0().iter_mut() {
-                *punch_anim = AsepriteAnimation::from(sprites::Player::tags::PUNCH);
+            // Check if the punch button is just pressed in the current frame
+            let punch_pressed = buttons & INPUT_PUNCH_JUST_PRESSED != 0;
+
+            // Conditionally update animation_indices based on button press
+            if punch_pressed {
+                // Adjust the start and end index based on your sprite sheet
+                indices.first = 1;
+                indices.last = 4;
+            }
+
+            // Update the sprite index based on the animation_indices
+            timer.tick(time.delta());
+            if timer.just_finished() {
+                if sprite.index == indices.last {
+                    sprite.index = 0;
+                    indices.first = 0;
+                    indices.last = 0;
+                } else {
+                    sprite.index += 1
+                };
             }
         }
     }
@@ -251,14 +288,13 @@ fn main() {
 
     App::new()
         .add_plugins((
-            DefaultPlugins
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        fit_canvas_to_parent: true,
-                        ..default()
-                    }),
+            DefaultPlugins.set(WindowPlugin {
+                primary_window: Some(Window {
+                    fit_canvas_to_parent: true,
                     ..default()
                 }),
+                ..default()
+            }),
             PhysicsPlugins::new(PhysicsSchedule),
             FrameTimeDiagnosticsPlugin,
             LobbyPlugin,
@@ -266,7 +302,6 @@ fn main() {
         ))
         .add_plugins(GgrsPlugin::<GgrsConfig>::default())
         .add_systems(ReadInputs, input)
-        .add_plugins(AsepritePlugin)
         // Ggrs stuff is for handling online rollback multiplayer desync detection
         .add_plugins(GgrsComponentSnapshotClonePlugin::<Transform>::default())
         .add_plugins(GgrsComponentSnapshotClonePlugin::<Position>::default())
@@ -298,9 +333,8 @@ fn main() {
                 //setup_scene,
                 //spawn_characters,
                 step_physics,
-                movement,
+                handle_player_input,
                 update_previous_position,
-                attack_actions,
                 increase_frame_system,
             )
                 .chain(),

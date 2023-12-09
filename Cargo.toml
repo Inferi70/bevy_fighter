@@ -20,7 +20,6 @@ serde = "1"
 glam = { version = "0.24", features = ["libm"] }
 
 serde_qs = "0.12"
-bevy_aseprite = "0.11.0"
 # wasm-bindgen = "0.2"
 
 [profile.dev]

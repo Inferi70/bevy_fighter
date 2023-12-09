@@ -8,7 +8,7 @@ use crate::GgrsConfig;
 #[repr(C)]
 #[derive(Copy, Clone, PartialEq, Pod, Zeroable, Debug, Default, Reflect)]
 pub struct InferiInput {
-    pub buttons: u16
+    pub buttons: u16,
 }
 
 // Direction inputs
@@ -92,10 +92,7 @@ pub fn input(
         input |= INPUT_HEAVY;
     }
 
-    let inferi_input = InferiInput {
-        buttons: input,
-        ..default()
-    };
+    let inferi_input = InferiInput { buttons: input };
 
     for handle in &local_players.0 {
         local_inputs.insert(*handle, inferi_input);
