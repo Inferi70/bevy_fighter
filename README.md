@@ -18,7 +18,7 @@ Currently the Hitboxes aren't implemented, But we did get p2p networking to work
 
 ## Youtube video showing it off
 
-https://youtu.be/x55EGR7V6lo
+https://youtu.be/F6_84X-HIv0
 
 ## Controls
 
