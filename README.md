@@ -11,15 +11,14 @@ All within a single game frame.
 At the moment I only send the inputs, cause the demo doesn't have good enough determinism for my experience,
 to keep everything in sync, so i dont do rollback on the characters atm so when they are desynced they are forever desynced.
 
-<<<<<<< HEAD
-## Youtube video showing it off
-
-https://youtu.be/x55EGR7V6lo
-=======
 For this project I aim to have seperate controllable characters,
 that have some for of animations in place, aswell as having hitboxes.
 
 Currently the Hitboxes aren't implemented, But we did get p2p networking to work.
+
+## Youtube video showing it off
+
+https://youtu.be/x55EGR7V6lo
 
 ## Controls
 
@@ -27,7 +26,6 @@ WASD, are used for movement.
 JKL:UIOP are used for moves.
 
 U is the only move currently implemented and its for the Punch button.
->>>>>>> 6a4506c (Redone animation system, redone input handling (old function was movement new is input_handling), updated readme)
 
 ## Running it
 
